@@ -1,7 +1,7 @@
 TARGET=ipk-lookup
 
 CC=gcc
-CFLAGS=-Wall -pedantic -lm
+CFLAGS=-Wall -lm
 
 all: $(TARGET)
 
