@@ -50,7 +50,29 @@ int main(int argc, char** argv)
 	setupQuery(query, &queryLen, name, type);
 	
 	
-	sendto(socketFD, query, queryLen, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+	// --- Sending query ---
+	int n;
+	n = sendto(socketFD, query, queryLen, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+	if(n < 0)
+		errorExit(1, "Error sending query");
+	
+	
+	// --- Receiving response ---	
+	char response[65536];
+	socklen_t responseLen;
+	n = recvfrom(socketFD, response, sizeof(response), 0, (struct sockaddr*)&serv_addr, &responseLen);
+	if(n < 0)
+		errorExit(1, "Error receiving query");
+		
+		
+	// --- Debug print ---
+	printf("==========[RECEIVED]==========\n");
+	for(int i=0; i < responseLen; i++)
+    {
+		printf("%02X(%d) ", query[i], query[i]);
+	}
+	printf("\n");	
+	
 }
 
 
@@ -62,7 +84,6 @@ void getArguments(int argc, char** argv, char** server, int* timeout, char** typ
 	// --- Loading arguments ---
 	while((c = getopt(argc, argv, "hs:T:t:i")) != -1)
 	{
-		printf("Argument: %c\n",c);
 		switch(c)
 		{
 			case 'h':
@@ -138,6 +159,8 @@ void setFlag(int* flag)
 void setupSocket(int* socketFD, struct sockaddr_in* serv_addr, char* server)
 {
 	*socketFD = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if(*socketFD < 0)
+		errorExit(1, "Couldn't create socket");
 	
 	serv_addr->sin_family = AF_INET;	// Symbolic constant
     serv_addr->sin_port = htons(53);	// Convert port 53 (DNS port) to network byte order
@@ -155,7 +178,7 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 	
 	// --- Setting up basic info ---
 	transactionID = htons(getpid());	// Sometimes second byte is minus and is strange AF
-	flags = 0b0000000100000000;		
+	flags = htons(0b0000000100000000);		
 	questions = htons(1);	// Questions count
 	qClass = htons(1);	// Class IN
 	
@@ -205,7 +228,7 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 	
 	
 	// --- Debug print ---
-	printf("=======\n");
+	printf("==========[SENT]==========\n");
 	for(int i=0; i<indexAfterName+4; i++)
     {
 		printf("%02X(%d) ", query[i], query[i]);
