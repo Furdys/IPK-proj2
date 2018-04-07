@@ -18,181 +18,10 @@ void getArguments(int argc, char** argv, char** server, int* timeout, char** typ
 void setFlag(int* flag);
 void setupSocket(int* socketFD, struct sockaddr_in* serv_addr, char* server);
 void setupQuery(char* query, int* queryLen, char* name, char* type);
+void decodeResponse(unsigned char* response, int responseLen, int queryLen);
+int ntohName(char* resultName, unsigned char* response, unsigned char* dnsName, int queryLen, char* type);
+char* ntohType(int qType);
 void errorExit(int code, char* msg);
-
-char* ntohType(int qType)
-{
-	qType = ntohs(qType);
-	
-	switch(qType)
-	{
-		case 1:
-			return "A";
-		case 2:
-			return "PTR";
-		case 5:
-			return "CNAME";
-		case 12:
-			return "PTR";
-		case 28:
-			return "AAAA";
-		default:
-			errorExit(1, "Invalid qType in response");
-	}
-	
-	return NULL;
-}
-
-int ntohName(char* resultName, unsigned char* response, unsigned char* dnsName, int queryLen, char* type)	// hostName == &response[queryLen]
-{
-//	printf("==============\n");
-	// --- Decoding offset/dataLen ---
-	unsigned short offset;	// First two bytes of name (can be offset or dataLen!!!)
-	memcpy(&offset, dnsName, 2);
-	offset = ntohs(offset);	
-	
-	int bytesUsed = 2;
-	int dataLen;
-	
-	
-	if(offset > 0b1100000000000000)	// Is offset used?
-	{
-		// Offset used
-		offset -= 0b1100000000000000;	// Remove offset indicator
-	}
-	else
-	{
-		// Offset not used
-		dataLen = offset; // @todo This should be the limit!!!!
-		offset = dnsName - response + 2;	// Compute offset @todo WHY?
-		bytesUsed += dataLen;
-	}
-	
-	int sectionLen = 0;
-	int i = 0;
-
-	
-	// --- Converting DNS name to host name (IP version) ---
-	if(type != NULL && !strcmp(type, "A"))	// @todo Maybe also can be linked via offsetlink :O
-	{
-		char ipAdress[dataLen*2+1*3];
-		memset(ipAdress, '\0', sizeof(ipAdress));
-
-		int y = 0;
-		for(int x=0; x < dataLen; x++)	
-		{
-			
-			char temp[5];
-			sprintf(temp, "%d.", response[offset+x]);
-			memcpy(&ipAdress[y], temp, strlen(temp));
-			y += strlen(temp);
-		}
-		ipAdress[y-1] = '\0';
-		
-		// --- Return result ---
-		strcpy(resultName, ipAdress);
-		return bytesUsed;
-	}
-
-
-	// --- Converting DNS name to host name ---
-	char normalName[255];
-	memset(normalName, '\0', sizeof(normalName));
-	
-		
-	i = 0;
-	do
-	{
-		sectionLen = response[offset+i];
-		memcpy(&normalName[i], (char*)&response[offset+i+1], sectionLen); // Offset in message + char position + 1 because of section len in index 0
-		normalName[i+sectionLen] = '.';
-		
-		if(sectionLen >= 0b11000000)	// If there is a offset link instead of section length
-		{
-			char linkedName[255];
-			ntohName(linkedName, response, &response[offset+i], queryLen, type);
-			memcpy(&normalName[i], linkedName, strlen(linkedName)+1);
-		}
-		
-		i += sectionLen+1;
-	}
-	while(sectionLen != 0);
-	
-	normalName[i-2] = '\0';	// Change last '.' to \0
-	
-	
-	// --- Return result ---
-	strcpy(resultName, normalName);
-	
-	return bytesUsed;
-}
-
-void decodeResponse(unsigned char* response, int responseLen, int queryLen)
-{
-	/*
-	// --- Debug print ---
-	printf("==========[RECEIVED]==========\n");
-	for(int i=0; i < responseLen; i++)	// @todo Is it good idea to use n instead of responseLen?
-    {
-		printf("%02X(%d) ", response[i], response[i]);
-	}
-	printf("\n");	
-	*/
-	
-	// --- Getting answers count ---
-	unsigned short answerCount;
-	memcpy(&answerCount, &response[6], 2);
-	answerCount = ntohs(answerCount);
-	
-	int bytesUsed = 0;	// Number of bytes used for name
-	
-	for(int i = 0; i < answerCount; i++)
-	{
-			
-		
-		char name[255];
-		//printf("Bytes used 1: %d\n", bytesUsed);
-		bytesUsed += ntohName(name, response, &response[queryLen+bytesUsed], queryLen, NULL);
-		
-		unsigned short qType;
-		memcpy(&qType, &response[queryLen+bytesUsed], 2);
-		char *type = ntohType(qType);
-		bytesUsed += 2;
-		
-		
-		unsigned short qClass;
-		memcpy(&qClass, &response[queryLen+bytesUsed], 2);
-		qClass = ntohs(qClass);	
-		if(qClass != 1)
-			errorExit(1, "Unexpected qClass in response");
-		bytesUsed += 2;
-
-		
-		bytesUsed += 4;	// Skipping TIL
-		
-		//printf("Bytes used 2: %d\n", bytesUsed);
-		
-		char cName[255];
-		//printf("DBG=%x\n",response[queryLen+bytesUsed+8]);
-
-		bytesUsed += ntohName(cName, response, &response[queryLen+bytesUsed], queryLen, type);
-		
-		
-		printf("%s. IN %s %s\n", name, type, cName);
-		
-		/*
-		//printf("\n==========[PRINTING]==========\n");
-		unsigned short dataLen;
-		memcpy(&dataLen, &response[queryLen+10], 2);
-		dataLen = ntohs(dataLen);	
-		printf("\ndateLen=%d\n", dataLen);	
-		
-		//printf("\n===============================\n");
-		*/
-		//printf("Bytes used: %d\n", bytesUsed);
-	}
-
-}
 
 
 // === Functions ===
@@ -427,6 +256,171 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 	printf("\n");	
 	*/
 }
+
+int ntohName(char* resultName, unsigned char* response, unsigned char* dnsName, int queryLen, char* type)
+{
+	// --- Decoding offset/dataLen ---
+	unsigned short offset;	// First two bytes of name (can be offset or dataLen!!!)
+	memcpy(&offset, dnsName, 2);
+	offset = ntohs(offset);	
+	
+	int bytesUsed = 2;
+	int dataLen;
+	
+	if(offset >= 0b1100000000000000)	// Is offset used?
+	{
+		// Offset used
+		offset -= 0b1100000000000000;	// Remove offset indicator
+	}
+	else
+	{
+		// Offset not used
+		dataLen = offset; // @todo This should be the limit!!!!
+		offset = dnsName - response + 2;	// Compute offset @todo WHY?
+		bytesUsed += dataLen;
+	}
+	
+	
+	int sectionLen = 0;
+	int i = 0;
+
+	
+	// --- Converting DNS name to host name (IP version) ---
+	if(type != NULL && !strcmp(type, "A"))	// @todo Maybe also can be linked via offsetlink :O
+	{
+		char ipAdress[dataLen*2+1*3];
+		memset(ipAdress, '\0', sizeof(ipAdress));
+
+		int y = 0;
+		for(int x=0; x < dataLen; x++)	
+		{
+			
+			char temp[5];
+			sprintf(temp, "%d.", response[offset+x]);
+			memcpy(&ipAdress[y], temp, strlen(temp));
+			y += strlen(temp);
+		}
+		ipAdress[y-1] = '\0';
+		
+		// --- Return result ---
+		strcpy(resultName, ipAdress);
+		return bytesUsed;
+	}
+
+
+	// --- Converting DNS name to host name (classic version) ---
+	char normalName[255];
+	memset(normalName, '\0', sizeof(normalName));
+	
+		
+	i = 0;
+	do
+	{
+		sectionLen = response[offset+i];
+		memcpy(&normalName[i], (char*)&response[offset+i+1], sectionLen); // Offset in message + char position + 1 because of section len in index 0
+		normalName[i+sectionLen] = '.';
+		
+		if(sectionLen >= 0b11000000)	// If there is a offset link instead of section length
+		{
+			char linkedName[255];
+			ntohName(linkedName, response, &response[offset+i], queryLen, type);
+			memcpy(&normalName[i], linkedName, strlen(linkedName)+1);
+		}
+		
+		i += sectionLen+1;
+	}
+	while(sectionLen != 0);
+	
+	normalName[i-2] = '\0';	// Change last '.' to \0
+	
+	
+	// --- Return result ---
+	strcpy(resultName, normalName);
+	
+	return bytesUsed;
+}
+
+void decodeResponse(unsigned char* response, int responseLen, int queryLen)
+{
+	/*
+	// --- Debug print ---
+	printf("==========[RECEIVED]==========\n");
+	for(int i=0; i < responseLen; i++)	// @todo Is it good idea to use n instead of responseLen?
+    {
+		printf("%02X(%d) ", response[i], response[i]);
+	}
+	printf("\n");	
+	*/
+	
+	// --- Getting answers count ---
+	unsigned short answerCount;
+	memcpy(&answerCount, &response[6], 2);
+	answerCount = ntohs(answerCount);
+	
+	
+	// --- Cycle through answers ---
+	int bytesUsed = 0;	// Number of bytes already read
+	for(int i = 0; i < answerCount; i++)
+	{
+		// --- Getting NAME ---
+		char name[255];
+		bytesUsed += ntohName(name, response, &response[queryLen+bytesUsed], queryLen, NULL);
+		
+		
+		// --- Getting QTYPE ---
+		unsigned short qType;
+		memcpy(&qType, &response[queryLen+bytesUsed], 2);
+		char *type = ntohType(qType);
+		bytesUsed += 2;
+		
+		
+		// --- Checkinh QCLASS ---
+		unsigned short qClass;
+		memcpy(&qClass, &response[queryLen+bytesUsed], 2);
+		qClass = ntohs(qClass);	
+		if(qClass != 1)
+			errorExit(1, "Unexpected qClass in response");
+		bytesUsed += 2;
+
+
+		// --- Skipping TIL ---
+		bytesUsed += 4;
+		
+		
+		// --- Getting CNAME ---
+		char cName[255];
+		bytesUsed += ntohName(cName, response, &response[queryLen+bytesUsed], queryLen, type);
+		
+		
+		// --- Printing result ---
+		printf("%s. IN %s %s\n", name, type, cName);
+	}
+
+}
+
+char* ntohType(int qType)
+{
+	qType = ntohs(qType);
+	
+	switch(qType)
+	{
+		case 1:
+			return "A";
+		case 2:
+			return "PTR";
+		case 5:
+			return "CNAME";
+		case 12:
+			return "PTR";
+		case 28:
+			return "AAAA";
+		default:
+			errorExit(1, "Invalid qType in response");
+	}
+	
+	return NULL;
+}
+
 
 void errorExit(int code, char* msg)
 {
