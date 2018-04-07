@@ -11,6 +11,8 @@
 #include <sys/socket.h> // socket
 #include <netinet/in.h> // IPPROTO_UDP
 #include <arpa/inet.h>	// inet_addr
+#include <errno.h>
+
 
 
 // === Prototypes ===
@@ -59,13 +61,27 @@ int main(int argc, char** argv)
 		errorExit(1, "Error sending query");
 	
 	
-	// --- Receiving response ---	
+	
+	// --- Setting response timeout ---
+	struct timeval tv;
+	tv.tv_sec = timeout;
+	tv.tv_usec = 0;
+	n = setsockopt(socketFD, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof tv);
+	if(n < 0)
+		errorExit(1, "Error setting response tiemout"); 
+		
+		     
+    // --- Receiving response ---
 	unsigned char response[65536];
 	socklen_t responseLen;
 	n = recvfrom(socketFD, response, sizeof(response), 0, (struct sockaddr*)&serv_addr, &responseLen);
 	if(n < 0)
-		errorExit(1, "Error receiving query");
-		
+	{
+		if(errno == 11)
+			errorExit(1, "Connection timeout");
+		else
+			errorExit(1, "Error receiving response");
+	}	
 	decodeResponse(response, n, queryLen);	// @todo Use n or reposnseLen?
 		
 	
@@ -144,7 +160,10 @@ void getArguments(int argc, char** argv, char** server, int* timeout, char** typ
 	{
 		if(argc == 2)
 		{
-			printf("@todo");
+			printf("DNS Lookup tool (made by Jiri Furda)\n");
+			printf("This program sends DNS query a decodes response without using built-in libraries\n");
+			printf("\nUsage:\n");
+			printf("/ipk-lookup -s server [-T timeout] [-t type] [-i] name\n");
 			exit(0);
 		}
 		else
@@ -184,7 +203,7 @@ void setupSocket(int* socketFD, struct sockaddr_in* serv_addr, char* server)
 	
 	serv_addr->sin_family = AF_INET;	// Symbolic constant
     serv_addr->sin_port = htons(53);	// Convert port 53 (DNS port) to network byte order
-    serv_addr->sin_addr.s_addr = inet_addr(server);	// DNS server adress	
+    serv_addr->sin_addr.s_addr = inet_addr(server);	// DNS server address	
 }
 
 void setupQuery(char* query, int* queryLen, char* name, char* type)
@@ -194,6 +213,10 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 	unsigned short questions;
 	unsigned short qType;
 	unsigned short qClass;
+	char qName[255];
+	int indexAfterName;
+	
+	memset(qName, '\0', 255);
 	
 	
 	// --- Setting up basic info ---
@@ -202,26 +225,7 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 	questions = htons(1);	// Questions count
 	qClass = htons(1);	// Class IN
 	
-	
-	// --- Converting name to query style ---
-	// www.fit.vutbr.cz -> 3www3fit5vutbr2cz
-	char qName[strlen(name)+2];
-	strcpy(&qName[1], name);
-	
-	int prevIndex = 0;
-	int len;
-	while((len = strcspn(&qName[prevIndex+1], ".")) != 0)
-	{
-		len = strcspn(&qName[prevIndex+1], ".");
-		qName[prevIndex] = len;
-		prevIndex += len+1; 
-	}
-	if(strlen(name)+1 != prevIndex)	// Dot and end of name
-		qName[prevIndex] = 0;	// Change it to null byte
 
-	
-	int indexAfterName = 12+strlen(qName)+1;
-	
 	// --- Getting type number ---
 	if(!strcmp(type, "A"))
 		qType = 1;
@@ -236,6 +240,43 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 		
 	qType = htons(qType);
 
+	// --- Converting name to network style ---
+	if(qType == 12)	// PTR
+	{
+		// -- IP version --	
+		if(strchr(name, '.') != NULL)
+		{
+			inet_pton(AF_INET, name, &qName);
+		}
+		else if(strchr(name, ':') != NULL)
+		{
+			inet_pton(AF_INET6, name, &qName);
+		}
+		else
+			errorExit(1, "Unexpected content given in name (Expected IPv4 or IPv6 address)");
+	}
+	else
+	{
+		// -- Classic version --
+		// www.fit.vutbr.cz -> 3www3fit5vutbr2cz0
+		strcpy(&qName[1], name);
+		
+		int prevIndex = 0;
+		int len;
+		while((len = strcspn(&qName[prevIndex+1], ".")) != 0)
+		{
+			len = strcspn(&qName[prevIndex+1], ".");
+			qName[prevIndex] = len;
+			prevIndex += len+1; 
+		}
+		if(strlen(name)+1 != prevIndex)	// Dot and end of name
+			qName[prevIndex] = 0;	// Change it to null byte
+
+		
+		indexAfterName = 12+strlen(qName)+1;
+		
+		//memcpy(&query[12], &qName, strlen(qName)+1);
+	}
 	
 	
 	// --- Creating query ---
@@ -293,20 +334,20 @@ int ntohName(char* resultName, unsigned char* response, unsigned char* dnsName, 
 	{
 		if(!strcmp(type, "A"))
 		{
-			char ipAdress[INET_ADDRSTRLEN];
-			inet_ntop(AF_INET, &response[offset], ipAdress, INET_ADDRSTRLEN);
+			char ipAddress[INET_ADDRSTRLEN];
+			inet_ntop(AF_INET, &response[offset], ipAddress, INET_ADDRSTRLEN);
 		
 			// --- Return result ---
-			strcpy(resultName, ipAdress);
+			strcpy(resultName, ipAddress);
 			return bytesUsed;	
 		}
 		else if(!strcmp(type, "AAAA"))
 		{
-			char ipAdress[INET6_ADDRSTRLEN];
-			inet_ntop(AF_INET6, &response[offset], ipAdress, INET6_ADDRSTRLEN);
+			char ipAddress[INET6_ADDRSTRLEN];
+			inet_ntop(AF_INET6, &response[offset], ipAddress, INET6_ADDRSTRLEN);
 		
 			// --- Return result ---
-			strcpy(resultName, ipAdress);
+			strcpy(resultName, ipAddress);
 			return bytesUsed;	
 		}
 	}
