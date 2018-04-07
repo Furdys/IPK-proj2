@@ -20,6 +20,121 @@ void setupSocket(int* socketFD, struct sockaddr_in* serv_addr, char* server);
 void setupQuery(char* query, int* queryLen, char* name, char* type);
 void errorExit(int code, char* msg);
 
+char* ntohType(int qType)
+{
+	qType = ntohs(qType);
+	
+	switch(qType)
+	{
+		case 1:
+			return "A";
+		case 2:
+			return "PTR";
+		case 5:
+			return "CNAME";
+		case 12:
+			return "PTR";
+		case 28:
+			return "AAAA";
+		default:
+			errorExit(1, "Invalid qType in response");
+	}
+	
+	return NULL;
+}
+
+void ntohName(char* resultName, unsigned char* response, unsigned char* dnsName, int queryLen)	// hostName == &response[queryLen]
+{
+	// --- Decoding offset ---
+	unsigned short offset;
+	memcpy(&offset, dnsName, 2);
+	offset = ntohs(offset);	
+	
+	if(offset > 0b1100000000000000)	// Is offset used?
+	{
+		//printf("Offset used\n");
+		offset -= 0b1100000000000000;	// Remove offset indicator
+	}
+	else
+	{
+		//printf("Offset not used!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+		//offset = 
+	}
+	//printf("Offset=%d\n", offset);
+	
+	
+	// --- Decoding length ---
+	int normalNameLen = strlen((char*)&response[offset]);
+	char normalName[normalNameLen];
+	
+	
+	// --- Converting DNS name to host name ---
+	for(int i = 0; i < normalNameLen; i++)	// @todo This needs to be reworked, it should always read only characters based on section len
+	{
+		if(response[offset+i+1] > 48)	// Is it section len or character? @ todo Right ascii number?
+			normalName[i] = response[offset+i+1];	// Offset in message + char position + 1 because of section len in index 0
+		else
+			normalName[i] = '.';	// Replace section len
+	}
+	normalName[normalNameLen-1] = 0;	// Add null byte to end string
+	
+	//printf("Name: %s" ,normalName);
+	
+	
+	// --- Return result ---
+	strcpy(resultName, normalName);
+}
+
+void decodeResponse(unsigned char* response, int responseLen, int queryLen)
+{
+	/*
+	// --- Debug print ---
+	printf("==========[RECEIVED]==========\n");
+	for(int i=0; i < responseLen; i++)	// @todo Is it good idea to use n instead of responseLen?
+    {
+		printf("%02X(%d) ", response[i], response[i]);
+	}
+	printf("\n");	
+	*/
+	
+	// --- Getting answers count ---
+	unsigned short answerCount;
+	memcpy(&answerCount, &response[6], 2);
+	answerCount = ntohs(answerCount);
+	
+	
+	for(int i = 0; i < answerCount; i++)
+	{
+		char name[255];
+		ntohName(name, response, &response[queryLen], queryLen);
+		
+		
+		
+		unsigned short qType;
+		memcpy(&qType, &response[queryLen+2], 2);
+		char *type = ntohType(qType);
+		
+		
+		unsigned short qClass;
+		memcpy(&qClass, &response[queryLen+4], 2);
+		qClass = ntohs(qClass);	
+		if(qClass != 1)
+			errorExit(1, "Unexpected qClass in response");
+			
+		printf("%s. IN %s\n", name, type);
+		
+		/*
+		printf("\n==========[PRINTING]==========\n");
+		unsigned short dataLen;
+		memcpy(&dataLen, &response[queryLen+10], 2);
+		dataLen = ntohs(dataLen);	
+		printf("\ndateLen=%d\n", dataLen);	
+		
+		printf("\n===============================\n");
+		*/
+	}
+
+}
 
 
 // === Functions ===
@@ -64,65 +179,11 @@ int main(int argc, char** argv)
 	if(n < 0)
 		errorExit(1, "Error receiving query");
 		
+	decodeResponse(response, n, queryLen);	// @todo Use n or reposnseLen?
 		
-	// --- Debug print ---
-	printf("==========[RECEIVED]==========\n");
-	for(int i=0; i < n; i++)	// @todo Is it good idea to use n instead of responseLen?
-    {
-		printf("%02X(%d) ", response[i], response[i]);
-	}
-	printf("\n");	
-	
-	unsigned short answerCount;
-	memcpy(&answerCount, &response[6], 2);
-	answerCount = ntohs(answerCount);
-	printf("Answers=%d\n", answerCount);
-	
-	// @todo check if response is OK
-	
-	printf("\n==========[LOAING]==========\n");
-	for(int i = queryLen; i < n; i++)	// @todo Is it good idea to use n instead of responseLen?
-    {
-		printf("%02X(%d) ", response[i], response[i]);
-	}	
-	unsigned short offset;
-	memcpy(&offset, &response[queryLen], 2);
-	offset = ntohs(offset);	
-	offset -= 0b1100000000000000;
-	printf("\nOffset=%d\n", offset);
 	
 	
-	printf("\n==========[PRINTING]==========\n");
-	int answerNameLen = strlen((char*)&response[offset]);
-	char answerName[answerNameLen];
-	for(int i = 0; i < answerNameLen; i++)
-	{
-		if(response[offset+i+1] > 48)	// @ todo Right ascii number?
-			answerName[i] = response[offset+i+1];
-		else
-			answerName[i] = '.';
-	}
-	answerName[answerNameLen-1] = 0;
-	
-	printf("%s",answerName);
-
-	printf("\n==========[INFO]==========\n");
-	unsigned short qType;
-	memcpy(&qType, &response[queryLen+2], 2);
-	qType = ntohs(qType);	
-	printf("\nqType=%d\n", qType);	
-	
-	unsigned short qClass;
-	memcpy(&qClass, &response[queryLen+4], 2);
-	qClass = ntohs(qClass);	
-	printf("\nqClass=%d\n", qClass);	
-	
-	
-	printf("\n==========[PRINTING]==========\n");
-	unsigned short dataLen;
-	memcpy(&dataLen, &response[queryLen+10], 2);
-	dataLen = ntohs(dataLen);	
-	printf("\ndateLen=%d\n", dataLen);		
+		
 	
 	
 	/*
@@ -151,12 +212,12 @@ int main(int argc, char** argv)
 void getArguments(int argc, char** argv, char** server, int* timeout, char** type, int* iterative, char** name)
 {
 	int c;
-	int hFlag, sFlag, TFlag, tFlag, iFlag;
+	int hFlag, sFlag; // TFlag, tFlag, iFlag;
 	
 	// --- Loading arguments ---
 	while((c = getopt(argc, argv, "hs:T:t:i")) != -1)
 	{
-		switch(c)
+		switch(c)	// @todo Using operator twice check
 		{
 			case 'h':
 				//setFlag(&hFlag);
@@ -298,7 +359,7 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 	memcpy(&query[indexAfterName], &qType, 2);
 	memcpy(&query[indexAfterName+2], &qClass, 2);
 	
-	
+	/*
 	// --- Debug print ---
 	printf("==========[SENT]==========\n");
 	for(int i=0; i<indexAfterName+4; i++)
@@ -306,6 +367,7 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 		printf("%02X(%d) ", query[i], query[i]);
 	}
 	printf("\n");	
+	*/
 }
 
 void errorExit(int code, char* msg)
