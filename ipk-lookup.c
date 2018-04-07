@@ -58,7 +58,7 @@ int main(int argc, char** argv)
 	
 	
 	// --- Receiving response ---	
-	char response[65536];
+	unsigned char response[65536];
 	socklen_t responseLen;
 	n = recvfrom(socketFD, response, sizeof(response), 0, (struct sockaddr*)&serv_addr, &responseLen);
 	if(n < 0)
@@ -67,11 +67,83 @@ int main(int argc, char** argv)
 		
 	// --- Debug print ---
 	printf("==========[RECEIVED]==========\n");
-	for(int i=0; i < responseLen; i++)
+	for(int i=0; i < n; i++)	// @todo Is it good idea to use n instead of responseLen?
     {
-		printf("%02X(%d) ", query[i], query[i]);
+		printf("%02X(%d) ", response[i], response[i]);
 	}
 	printf("\n");	
+	
+	unsigned short answerCount;
+	memcpy(&answerCount, &response[6], 2);
+	answerCount = ntohs(answerCount);
+	printf("Answers=%d\n", answerCount);
+	
+	// @todo check if response is OK
+	
+	printf("\n==========[LOAING]==========\n");
+	for(int i = queryLen; i < n; i++)	// @todo Is it good idea to use n instead of responseLen?
+    {
+		printf("%02X(%d) ", response[i], response[i]);
+	}	
+	unsigned short offset;
+	memcpy(&offset, &response[queryLen], 2);
+	offset = ntohs(offset);	
+	offset -= 0b1100000000000000;
+	printf("\nOffset=%d\n", offset);
+	
+	
+	printf("\n==========[PRINTING]==========\n");
+	int answerNameLen = strlen((char*)&response[offset]);
+	char answerName[answerNameLen];
+	for(int i = 0; i < answerNameLen; i++)
+	{
+		if(response[offset+i+1] > 48)	// @ todo Right ascii number?
+			answerName[i] = response[offset+i+1];
+		else
+			answerName[i] = '.';
+	}
+	answerName[answerNameLen-1] = 0;
+	
+	printf("%s",answerName);
+
+	printf("\n==========[INFO]==========\n");
+	unsigned short qType;
+	memcpy(&qType, &response[queryLen+2], 2);
+	qType = ntohs(qType);	
+	printf("\nqType=%d\n", qType);	
+	
+	unsigned short qClass;
+	memcpy(&qClass, &response[queryLen+4], 2);
+	qClass = ntohs(qClass);	
+	printf("\nqClass=%d\n", qClass);	
+	
+	
+	printf("\n==========[PRINTING]==========\n");
+	unsigned short dataLen;
+	memcpy(&dataLen, &response[queryLen+10], 2);
+	dataLen = ntohs(dataLen);	
+	printf("\ndateLen=%d\n", dataLen);		
+	
+	
+	/*
+	int answerNameIndex = 0;	
+	int responseIndex = offset;
+	
+	int len = response[responseIndex];
+	memcpy(&answerName[0], &response[offset+1], len);*/
+	
+	
+	
+/*	while(response[responseIndex] != 0)
+	{
+		answerName[answerNameIndex] = '.';
+		memcpy(&answerName[answerNameIndex+1], &response[responseIndex+1], response[responseIndex]);
+		
+		responseIndex += response[responseIndex]+1;
+		answerNameIndex += response[responseIndex];
+	}*/
+	
+	
 	
 }
 
