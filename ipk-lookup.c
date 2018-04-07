@@ -99,7 +99,7 @@ int main(int argc, char** argv)
 void getArguments(int argc, char** argv, char** server, int* timeout, char** type, int* iterative, char** name)
 {
 	int c;
-	int hFlag, sFlag; // TFlag, tFlag, iFlag;
+	int hFlag, sFlag, TFlag, tFlag, iFlag;
 	
 	// --- Loading arguments ---
 	while((c = getopt(argc, argv, "hs:T:t:i")) != -1)
@@ -107,27 +107,27 @@ void getArguments(int argc, char** argv, char** server, int* timeout, char** typ
 		switch(c)	// @todo Using operator twice check
 		{
 			case 'h':
-				//setFlag(&hFlag);
-				hFlag = 1;
+				setFlag(&hFlag);
+				//hFlag = 1;
 				break;
 			case 's':
-				//setFlag(&sFlag);
-				sFlag = 1;
+				setFlag(&sFlag);
+				//sFlag = 1;
 				*server = optarg;
 				break;
 			case 'T':
-				//setFlag(&TFlag);
+				setFlag(&TFlag);
 				*timeout = atoi(optarg);
 				break;
 			case 't':
-				//setFlag(&tFlag);
+				setFlag(&tFlag);
 				if(!strcmp(optarg, "A") || !strcmp(optarg, "AAAA") || !strcmp(optarg, "NS") || !strcmp(optarg, "PTR") || !strcmp(optarg, "CNAME"))
 					*type = optarg;
 				else
 					errorExit(2, "Invalid -t value");
 				break;
 			case 'i':
-				//setFlag(&iFlag);
+				setFlag(&iFlag);
 				*iterative = 1;
 				break;
 			case '?':
@@ -216,8 +216,11 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 		qName[prevIndex] = len;
 		prevIndex += len+1; 
 	}
-	int indexAfterName = 12+strlen(qName)+1;
+	if(strlen(name)+1 != prevIndex)	// Dot and end of name
+		qName[prevIndex] = 0;	// Change it to null byte
+
 	
+	int indexAfterName = 12+strlen(qName)+1;
 	
 	// --- Getting type number ---
 	if(!strcmp(type, "A"))
@@ -286,25 +289,26 @@ int ntohName(char* resultName, unsigned char* response, unsigned char* dnsName, 
 
 	
 	// --- Converting DNS name to host name (IP version) ---
-	if(type != NULL && !strcmp(type, "A"))	// @todo Maybe also can be linked via offsetlink :O
+	if(type != NULL)
 	{
-		char ipAdress[dataLen*2+1*3];
-		memset(ipAdress, '\0', sizeof(ipAdress));
-
-		int y = 0;
-		for(int x=0; x < dataLen; x++)	
+		if(!strcmp(type, "A"))
 		{
-			
-			char temp[5];
-			sprintf(temp, "%d.", response[offset+x]);
-			memcpy(&ipAdress[y], temp, strlen(temp));
-			y += strlen(temp);
-		}
-		ipAdress[y-1] = '\0';
+			char ipAdress[INET_ADDRSTRLEN];
+			inet_ntop(AF_INET, &response[offset], ipAdress, INET_ADDRSTRLEN);
 		
-		// --- Return result ---
-		strcpy(resultName, ipAdress);
-		return bytesUsed;
+			// --- Return result ---
+			strcpy(resultName, ipAdress);
+			return bytesUsed;	
+		}
+		else if(!strcmp(type, "AAAA"))
+		{
+			char ipAdress[INET6_ADDRSTRLEN];
+			inet_ntop(AF_INET6, &response[offset], ipAdress, INET6_ADDRSTRLEN);
+		
+			// --- Return result ---
+			strcpy(resultName, ipAdress);
+			return bytesUsed;	
+		}
 	}
 
 
@@ -330,8 +334,7 @@ int ntohName(char* resultName, unsigned char* response, unsigned char* dnsName, 
 		i += sectionLen+1;
 	}
 	while(sectionLen != 0);
-	
-	normalName[i-2] = '\0';	// Change last '.' to \0
+	normalName[i-1] = '\0';	// Add end of string
 	
 	
 	// --- Return result ---
@@ -393,7 +396,7 @@ void decodeResponse(unsigned char* response, int responseLen, int queryLen)
 		
 		
 		// --- Printing result ---
-		printf("%s. IN %s %s\n", name, type, cName);
+		printf("%s IN %s %s\n", name, type, cName);
 	}
 
 }
