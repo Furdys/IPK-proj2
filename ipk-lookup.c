@@ -43,46 +43,79 @@ char* ntohType(int qType)
 	return NULL;
 }
 
-void ntohName(char* resultName, unsigned char* response, unsigned char* dnsName, int queryLen)	// hostName == &response[queryLen]
+int ntohName(char* resultName, unsigned char* response, unsigned char* dnsName, int queryLen)	// hostName == &response[queryLen]
 {
-	// --- Decoding offset ---
-	unsigned short offset;
+	printf("==============\n");
+	// --- Decoding offset/dataLen ---
+	unsigned short offset;	// First two bytes of name (can be offset or dataLen!!!)
 	memcpy(&offset, dnsName, 2);
 	offset = ntohs(offset);	
 	
+	int dataLen = 2;
 	if(offset > 0b1100000000000000)	// Is offset used?
 	{
-		//printf("Offset used\n");
+		// Offset used
 		offset -= 0b1100000000000000;	// Remove offset indicator
 	}
 	else
 	{
-		//printf("Offset not used!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-		//offset = 
+		// Offset not used
+		dataLen = offset;
+		offset = dnsName - response;	// Compute offset @todo WHY?
+		
 	}
-	//printf("Offset=%d\n", offset);
+	printf("Offset=%d\ndataLen=%d\n", offset, dataLen);
 	
+	char newName[255];
+
+		//int sectionLen = dnsName[0];
+		//printf("\nsectionlen=%x\n",sectionLen);
+	
+	int i = 0;
+	
+	/*
+	while(i < dataLen)
+	{
+		printf("%d < %d\n", i, dataLen);
+		int sectionLen = dnsName[i+2];
+		printf("sectionLen = %x\n", sectionLen);
+		
+		if(sectionLen > 0b1100000000000000)
+		
+		strncpy(newName, (char*)&dnsName[i+3], sectionLen);
+		i += sectionLen;	
+	}
+	printf("%d < %d\n", i, dataLen);
+	printf("\nnewName=%s\n",newName);
+	*/
 	
 	// --- Decoding length ---
-	int normalNameLen = strlen((char*)&response[offset]);
-	char normalName[normalNameLen];
-	
+
+
+
 	
 	// --- Converting DNS name to host name ---
-	for(int i = 0; i < normalNameLen; i++)	// @todo This needs to be reworked, it should always read only characters based on section len
-	{
-		if(response[offset+i+1] > 48)	// Is it section len or character? @ todo Right ascii number?
-			normalName[i] = response[offset+i+1];	// Offset in message + char position + 1 because of section len in index 0
-		else
-			normalName[i] = '.';	// Replace section len
-	}
-	normalName[normalNameLen-1] = 0;	// Add null byte to end string
+	char normalName[255];
+	memset(normalName, '\0', sizeof(normalName));
 	
-	//printf("Name: %s" ,normalName);
+		
+	i = 0;
+	do
+	{
+		sectionLen = response[offset+i];
+		memcpy(&normalName[i], (char*)&response[offset+i+1], sectionLen); // Offset in message + char position + 1 because of section len in index 0
+		normalName[i+sectionLen] = '.';
+		i += sectionLen+1;
+	}
+	while(sectionLen != 0);
+	
+	normalName[i-2] = '\0';	// Change last '.' to \0
 	
 	
 	// --- Return result ---
 	strcpy(resultName, normalName);
+	
+	return 2;
 }
 
 void decodeResponse(unsigned char* response, int responseLen, int queryLen)
@@ -103,36 +136,49 @@ void decodeResponse(unsigned char* response, int responseLen, int queryLen)
 	answerCount = ntohs(answerCount);
 	
 	
-	for(int i = 0; i < answerCount; i++)
-	{
+	//for(int i = 0; i < answerCount; i++)
+	//{
+		int bytesUsed = 0;	// Number of bytes used for name
+		
 		char name[255];
-		ntohName(name, response, &response[queryLen], queryLen);
-		
-		
+		bytesUsed = ntohName(name, response, &response[queryLen], queryLen);
 		
 		unsigned short qType;
-		memcpy(&qType, &response[queryLen+2], 2);
+		memcpy(&qType, &response[queryLen+bytesUsed], 2);
 		char *type = ntohType(qType);
 		
 		
 		unsigned short qClass;
-		memcpy(&qClass, &response[queryLen+4], 2);
+		memcpy(&qClass, &response[queryLen+bytesUsed+2], 2);
 		qClass = ntohs(qClass);	
 		if(qClass != 1)
 			errorExit(1, "Unexpected qClass in response");
-			
-		printf("%s. IN %s\n", name, type);
+
+	// --- Debug print ---
+	/*printf("==========[RECEIVED]==========\n");
+	for(int i=queryLen+bytesUsed+8; i < responseLen; i++)	// @todo Is it good idea to use n instead of responseLen?
+    {
+		printf("%02X(%d) ", response[i], response[i]);
+	}
+	printf("\n");	*/
+		
+		char cName[255];
+		//printf("DBG=%x\n",response[queryLen+bytesUsed+8]);
+		ntohName(cName, response, &response[queryLen+bytesUsed+8], queryLen);
+		
+		
+		printf("%s. IN %s %s\n", name, type, cName);
 		
 		/*
-		printf("\n==========[PRINTING]==========\n");
+		//printf("\n==========[PRINTING]==========\n");
 		unsigned short dataLen;
 		memcpy(&dataLen, &response[queryLen+10], 2);
 		dataLen = ntohs(dataLen);	
 		printf("\ndateLen=%d\n", dataLen);	
 		
-		printf("\n===============================\n");
+		//printf("\n===============================\n");
 		*/
-	}
+	//}
 
 }
 
