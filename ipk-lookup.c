@@ -214,11 +214,9 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 	// --- Converting name to network style ---
 	if(!strcmp(type, "PTR"))
 	{
-		printf("PTR\n");	
 		// -- IP version --	
 		if(strchr(name, '.') != NULL)
 		{
-			printf("IPv4\n");	
 			char dump[255];
 			int retVal = 0;
 			retVal = inet_pton(AF_INET, name, &dump);
@@ -226,57 +224,34 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 				errorExit(2, "Invalid IPv4 address in name");
 			
 			char specialDomain[14] = ".in-addr.arpa";
-			specialDomain[0] = '7';
-			specialDomain[8] = '4';
-			
+			specialDomain[0] = 7;
+			specialDomain[8] = 4;
 			
 			int nameLen = strlen(name);
-			/*for(int i = 1; i <= nameLen; i++)
+			char reversedName[nameLen];
+			for(int i = 0; i < nameLen; i++)
 			{
-				qName[i] = name[nameLen-i];
-			}*/
+				reversedName[i] = name[nameLen-i-1];
+			}
+			
 			int len = 0;	// Label length
-			int prevIndex = 0;
-			strcpy(&qName[1], name);
-			while((len = strcspn(&qName[prevIndex+1], ".")) != 0)
+			int prevIndex = 0;	
+			while((len = strcspn(&reversedName[prevIndex], ".")) != 0)
 			{
-				strncpy(&qName[prevIndex+1], &name[prevIndex], len);
-				prevIndex += len+1; 
-			}			
-			
-			printf("%s\n",&qName[1]);
-
-
-			while((len = strcspn(&qName[prevIndex+1], ".")) != 0)
-			{
-				len = strcspn(&qName[prevIndex+1], ".");
+				char reversedLabel[len+1];
+				memset(reversedLabel, '\0', len+1);
+				for(int i = 0; i < len; i++)
+				{
+					reversedLabel[len-i-1] = reversedName[prevIndex+i];
+				}
+				
 				qName[prevIndex] = len;
+				memcpy(&qName[prevIndex+1], reversedLabel, len);
+				
 				prevIndex += len+1; 
 			}
-			//memcpy(&qName[strlen(qName)], &specialDomain, 14);
 			
-			int labelLen = 0;
-			for(int i = 0; i < 20; i++) //strlen(qName)+1
-			{
-				printf("%x ", qName[i]);
-			}		
-				
-			
-			printf("\n");
-			//exit(420);
-				
-			//printf("%d\n",strlen(qName));
-			//memcpy(qName[], &transactionID, 2);
-			//strcat(qName, ".in-addr.arpa");	// Add reverse DNS domain for IPv4
-			
-			//printf("%s\n",qName);
-			/*
-			printf("==========[SENT]==========\n");
-			for(int i=0; i<strlen(name); i++)
-			{
-				printf("%02X(%d) ", qName[i], qName[i]);
-			}
-			printf("\n");*/
+			memcpy(&qName[strlen(qName)], &specialDomain, 14);				
 		}
 		else if(strchr(name, ':') != NULL)
 		{
