@@ -215,7 +215,7 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 	if(!strcmp(type, "PTR"))
 	{
 		// -- IP version --	
-		if(strchr(name, '.') != NULL)
+		if(strchr(name, '.') != NULL)	// IPv4
 		{
 			char dump[255];
 			int retVal = 0;
@@ -253,13 +253,54 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 			
 			memcpy(&qName[strlen(qName)], &specialDomain, 14);				
 		}
-		else if(strchr(name, ':') != NULL)
+		else if(strchr(name, ':') != NULL)	// IPv6
 		{
+			char dump[255];
 			int retVal = 0;
-			inet_pton(AF_INET6, name, &qName);
+			retVal = inet_pton(AF_INET6, name, &dump);
 			if(retVal < 1)
-				errorExit(2, "Invalid IPv6 address in name");
-			strcat(qName, ".ip6.arpa");	// Add reverse DNS domain for IPv6
+				errorExit(2, "Invalid IPv4 address in name");
+			
+			char specialDomain[10] = ".ip6.arpa";
+			specialDomain[0] = 3;
+			specialDomain[4] = 4;
+			
+			int nameLen = strlen(name);
+			char reversedName[nameLen];
+			for(int i = 0; i < nameLen; i++)
+			{
+				reversedName[i] = name[nameLen-i-1];
+			}
+			
+			
+			int j = 4;	// Remaining characters in label
+			int q = 0;	// Index in qName
+			for(int i = 0; i < nameLen; i++)
+			{
+				if(reversedName[i] == ':')
+				{
+					if(j == 4)
+						j = 8;	// Don't ask me why
+						
+					for(int k = 0; k < j; k++)
+					{
+						qName[q*2] = 1;
+						qName[q*2+1] = '0';
+						q++;
+					}
+					
+					j = 4;
+					continue;
+				}
+				
+				qName[q*2] = 1;
+				qName[q*2+1] = reversedName[i];
+				
+				q++;
+				j--;
+			}
+
+			memcpy(&qName[strlen(qName)], &specialDomain, 14);
 		}
 		else
 			errorExit(2, "Unexpected content given in name (Expected IPv4 or IPv6 address)");
