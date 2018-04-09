@@ -20,7 +20,7 @@ void getArguments(int argc, char** argv, char** server, int* timeout, char** typ
 void setFlag(int* flag);
 void setupSocket(int* socketFD, struct sockaddr_in* serv_addr, char* server);
 void setupQuery(char* query, int* queryLen, char* name, char* type);
-void decodeResponse(unsigned char* response, int responseLen, int queryLen);
+void decodeResponse(unsigned char* response, int responseLen, int queryLen, char* inquiredType);
 int ntohName(char* resultName, unsigned char* response, unsigned char* dnsName, int queryLen, char* type);
 char* ntohType(int qType);
 void errorExit(int code, char* msg);
@@ -82,7 +82,7 @@ int main(int argc, char** argv)
 		else
 			errorExit(1, "Error receiving response");
 	}	
-	decodeResponse(response, n, queryLen);	// @todo Use n or reposnseLen?
+	decodeResponse(response, n, queryLen, type);	// @todo Use n or reposnseLen?
 		
 	
 	
@@ -384,7 +384,7 @@ int ntohName(char* resultName, unsigned char* response, unsigned char* dnsName, 
 	return bytesUsed;
 }
 
-void decodeResponse(unsigned char* response, int responseLen, int queryLen)
+void decodeResponse(unsigned char* response, int responseLen, int queryLen, char* inquiredType)
 {
 	/*
 	// --- Debug print ---
@@ -401,10 +401,18 @@ void decodeResponse(unsigned char* response, int responseLen, int queryLen)
 	memcpy(&answerCount, &response[6], 2);
 	answerCount = ntohs(answerCount);
 	
+	unsigned short authorityCount;
+	memcpy(&authorityCount, &response[8], 2);
+	authorityCount = ntohs(authorityCount);
+	
+	unsigned short additionalCount;
+	memcpy(&additionalCount, &response[10], 2);
+	additionalCount = ntohs(additionalCount);
 	
 	// --- Cycle through answers ---
 	int bytesUsed = 0;	// Number of bytes already read
-	for(int i = 0; i < answerCount; i++)
+	int found = 0;	// If inquired type was found
+	for(int i = 0; i < answerCount + authorityCount + additionalCount; i++)
 	{
 		// --- Getting NAME ---
 		char name[255];
@@ -417,8 +425,14 @@ void decodeResponse(unsigned char* response, int responseLen, int queryLen)
 		char *type = ntohType(qType);
 		bytesUsed += 2;
 		
+		// --- Checking QTYPE ---
+		int skipPrint = 0;
+		if(type != NULL && !strcmp(type, inquiredType))
+			found = 1;
+		else if(type == NULL || (strcmp(type, inquiredType) && strcmp(type, "CNAME"))) // @todo see https://wis.fit.vutbr.cz/FIT/st/phorum-msg-show.php?id=50958&mode=mthr
+			skipPrint = 1;	// Not printing this result row
 		
-		// --- Checkinh QCLASS ---
+		// --- Checking QCLASS ---
 		unsigned short qClass;
 		memcpy(&qClass, &response[queryLen+bytesUsed], 2);
 		qClass = ntohs(qClass);	
@@ -437,9 +451,11 @@ void decodeResponse(unsigned char* response, int responseLen, int queryLen)
 		
 		
 		// --- Printing result ---
-		printf("%s IN %s %s\n", name, type, cName);
+		if(skipPrint == 0)
+			printf("%s IN %s %s\n", name, type, cName);
 	}
-
+	if(found == 0)
+		errorExit(1, "Inquired type not found");
 }
 
 char* ntohType(int qType)
@@ -451,7 +467,7 @@ char* ntohType(int qType)
 		case 1:
 			return "A";
 		case 2:
-			return "PTR";
+			return "NS";
 		case 5:
 			return "CNAME";
 		case 12:
@@ -459,7 +475,7 @@ char* ntohType(int qType)
 		case 28:
 			return "AAAA";
 		default:
-			errorExit(1, "Invalid qType in response");
+			return NULL;
 	}
 	
 	return NULL;
