@@ -1,0 +1,14 @@
+DNS Lookup nástroj
+==================
+Program realizuje dotaz na systém DNS a následný překlad doménových jmen a IP
+adres v odpovědi na tento dotaz.  
+
+
+Omezení programu
+=================
+Není implemetován parametr -i
+
+
+Autor
+=====
+Jiri Furda (xfurda00)
