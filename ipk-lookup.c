@@ -61,7 +61,6 @@ int main(int argc, char** argv)
 		errorExit(1, "Error sending query");
 	
 	
-	
 	// --- Setting response timeout ---
 	struct timeval tv;
 	tv.tv_sec = timeout;
@@ -82,33 +81,7 @@ int main(int argc, char** argv)
 		else
 			errorExit(1, "Error receiving response");
 	}	
-	decodeResponse(response, n, queryLen, type);	// @todo Use n or reposnseLen?
-		
-	
-	
-		
-	
-	
-	/*
-	int answerNameIndex = 0;	
-	int responseIndex = offset;
-	
-	int len = response[responseIndex];
-	memcpy(&answerName[0], &response[offset+1], len);*/
-	
-	
-	
-/*	while(response[responseIndex] != 0)
-	{
-		answerName[answerNameIndex] = '.';
-		memcpy(&answerName[answerNameIndex+1], &response[responseIndex+1], response[responseIndex]);
-		
-		responseIndex += response[responseIndex]+1;
-		answerNameIndex += response[responseIndex];
-	}*/
-	
-	
-	
+	decodeResponse(response, n, queryLen, type);	// @todo Use n or reposnseLen?	
 }
 
 
@@ -156,18 +129,16 @@ void getArguments(int argc, char** argv, char** server, int* timeout, char** typ
 	}
 	
 	// --- Help option ---
-	if(hFlag == 1)
+	if(hFlag == 1 || argc == 1)
 	{
-		if(argc == 2)
-		{
-			printf("DNS Lookup tool (made by Jiri Furda)\n");
-			printf("This program sends DNS query a decodes response without using built-in libraries\n");
-			printf("\nUsage:\n");
-			printf("/ipk-lookup -s server [-T timeout] [-t type] [-i] name\n");
-			exit(0);
-		}
-		else
+		if(argc > 2)
 			errorExit(2, "Option -h cannot be combinated with other arguments");
+			
+		printf("DNS Lookup tool (made by Jiri Furda)\n");
+		printf("This program sends DNS query a decodes response without using built-in libraries\n");
+		printf("\nUsage:\n");
+		printf("/ipk-lookup -s server [-T timeout] [-t type] [-i] name\n");
+		exit(0);
 	}
 	
 	// --- Arguments check ---
@@ -216,7 +187,7 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 	char qName[255];
 	int indexAfterName;
 	
-	memset(qName, '\0', 255);
+	memset(qName, '\0', 255);	// Eatse qName
 	
 	
 	// --- Setting up basic info ---
@@ -241,19 +212,82 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 	qType = htons(qType);
 
 	// --- Converting name to network style ---
-	if(qType == 12)	// PTR
+	if(!strcmp(type, "PTR"))
 	{
+		printf("PTR\n");	
 		// -- IP version --	
 		if(strchr(name, '.') != NULL)
 		{
-			inet_pton(AF_INET, name, &qName);
+			printf("IPv4\n");	
+			char dump[255];
+			int retVal = 0;
+			retVal = inet_pton(AF_INET, name, &dump);
+			if(retVal < 1)
+				errorExit(2, "Invalid IPv4 address in name");
+			
+			char specialDomain[14] = ".in-addr.arpa";
+			specialDomain[0] = '7';
+			specialDomain[8] = '4';
+			
+			
+			int nameLen = strlen(name);
+			/*for(int i = 1; i <= nameLen; i++)
+			{
+				qName[i] = name[nameLen-i];
+			}*/
+			int len = 0;	// Label length
+			int prevIndex = 0;
+			strcpy(&qName[1], name);
+			while((len = strcspn(&qName[prevIndex+1], ".")) != 0)
+			{
+				strncpy(&qName[prevIndex+1], &name[prevIndex], len);
+				prevIndex += len+1; 
+			}			
+			
+			printf("%s\n",&qName[1]);
+
+
+			while((len = strcspn(&qName[prevIndex+1], ".")) != 0)
+			{
+				len = strcspn(&qName[prevIndex+1], ".");
+				qName[prevIndex] = len;
+				prevIndex += len+1; 
+			}
+			//memcpy(&qName[strlen(qName)], &specialDomain, 14);
+			
+			int labelLen = 0;
+			for(int i = 0; i < 20; i++) //strlen(qName)+1
+			{
+				printf("%x ", qName[i]);
+			}		
+				
+			
+			printf("\n");
+			//exit(420);
+				
+			//printf("%d\n",strlen(qName));
+			//memcpy(qName[], &transactionID, 2);
+			//strcat(qName, ".in-addr.arpa");	// Add reverse DNS domain for IPv4
+			
+			//printf("%s\n",qName);
+			/*
+			printf("==========[SENT]==========\n");
+			for(int i=0; i<strlen(name); i++)
+			{
+				printf("%02X(%d) ", qName[i], qName[i]);
+			}
+			printf("\n");*/
 		}
 		else if(strchr(name, ':') != NULL)
 		{
+			int retVal = 0;
 			inet_pton(AF_INET6, name, &qName);
+			if(retVal < 1)
+				errorExit(2, "Invalid IPv6 address in name");
+			strcat(qName, ".ip6.arpa");	// Add reverse DNS domain for IPv6
 		}
 		else
-			errorExit(1, "Unexpected content given in name (Expected IPv4 or IPv6 address)");
+			errorExit(2, "Unexpected content given in name (Expected IPv4 or IPv6 address)");
 	}
 	else
 	{
@@ -273,11 +307,11 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 			qName[prevIndex] = 0;	// Change it to null byte
 
 		
-		indexAfterName = 12+strlen(qName)+1;
+		
 		
 		//memcpy(&query[12], &qName, strlen(qName)+1);
 	}
-	
+	indexAfterName = 12+strlen(qName)+1;
 	
 	// --- Creating query ---
 	*queryLen = indexAfterName + 4;
@@ -289,20 +323,14 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 	memcpy(&query[12], &qName, strlen(qName)+1);
 	memcpy(&query[indexAfterName], &qType, 2);
 	memcpy(&query[indexAfterName+2], &qClass, 2);
-	
-	/*
-	// --- Debug print ---
-	printf("==========[SENT]==========\n");
-	for(int i=0; i<indexAfterName+4; i++)
-    {
-		printf("%02X(%d) ", query[i], query[i]);
-	}
-	printf("\n");	
-	*/
 }
 
 int ntohName(char* resultName, unsigned char* response, unsigned char* dnsName, int queryLen, char* type)
 {
+	// --- Checking for empty name ---
+	if(dnsName[0] == '0')
+		return 1;
+	
 	// --- Decoding offset/dataLen ---
 	unsigned short offset;	// First two bytes of name (can be offset or dataLen!!!)
 	memcpy(&offset, dnsName, 2);
@@ -412,7 +440,7 @@ void decodeResponse(unsigned char* response, int responseLen, int queryLen, char
 	// --- Cycle through answers ---
 	int bytesUsed = 0;	// Number of bytes already read
 	int found = 0;	// If inquired type was found
-	for(int i = 0; i < answerCount + authorityCount + additionalCount; i++)
+	for(int i = 0; i < answerCount; i++) //  + authorityCount + additionalCount
 	{
 		// --- Getting NAME ---
 		char name[255];
@@ -432,7 +460,7 @@ void decodeResponse(unsigned char* response, int responseLen, int queryLen, char
 		else if(type == NULL || (strcmp(type, inquiredType) && strcmp(type, "CNAME"))) // @todo see https://wis.fit.vutbr.cz/FIT/st/phorum-msg-show.php?id=50958&mode=mthr
 			skipPrint = 1;	// Not printing this result row
 		
-		// --- Checking QCLASS ---
+		// --- Checking QCLASS ---	
 		unsigned short qClass;
 		memcpy(&qClass, &response[queryLen+bytesUsed], 2);
 		qClass = ntohs(qClass);	
