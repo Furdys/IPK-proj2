@@ -302,9 +302,12 @@ void setupQuery(char* query, int* queryLen, char* name, char* type)
 
 int ntohName(char* resultName, unsigned char* response, unsigned char* dnsName, int queryLen, char* type)
 {
-	// --- Checking for empty name ---
-	if(dnsName[0] == '0')
-		return 1;
+	// --- Checking for "." name ---
+	if(dnsName[0] == 0 && dnsName[1] == 0 && dnsName[2] == 2 && dnsName[3] == 0)
+	{
+		strcpy(resultName, ".");
+		return 1;	// 1 byte used
+	}
 	
 	// --- Decoding offset/dataLen ---
 	unsigned short offset;	// First two bytes of name (can be offset or dataLen!!!)
@@ -389,16 +392,6 @@ int ntohName(char* resultName, unsigned char* response, unsigned char* dnsName, 
 
 void decodeResponse(unsigned char* response, int responseLen, int queryLen, char* inquiredType)
 {
-	/*
-	// --- Debug print ---
-	printf("==========[RECEIVED]==========\n");
-	for(int i=0; i < responseLen; i++)	// @todo Is it good idea to use n instead of responseLen?
-    {
-		printf("%02X(%d) ", response[i], response[i]);
-	}
-	printf("\n");	
-	*/
-	
 	// --- Getting answers count ---
 	unsigned short answerCount;
 	memcpy(&answerCount, &response[6], 2);
